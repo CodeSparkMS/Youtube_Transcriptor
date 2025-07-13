@@ -2,6 +2,9 @@
   functions = "functions"
   publish = "public"
 
+[functions]
+  api = { timeout = 30 }
+
 [[redirects]]
   from = "/transcript/*"
   to = "/.netlify/functions/api"

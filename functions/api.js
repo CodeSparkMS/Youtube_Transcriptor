@@ -4,7 +4,6 @@ const cors = require('cors');
 const serverless = require('serverless-http');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -106,9 +105,9 @@ function parseTranscriptXML(xmlData) {
     }
 }
 
-// Main transcript extraction method
+// Main transcript extraction method - optimized for Netlify Functions
 async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
-    const maxRetries = 2;
+    const maxRetries = 1; // Reduced for serverless
     
     try {
         const innertubeUrl = 'https://www.youtube.com/youtubei/v1/player';
@@ -123,7 +122,7 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
             },
             videoId: videoId
         }, {
-            timeout: 15000,
+            timeout: 8000, // Reduced timeout for serverless
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Content-Type': 'application/json',
@@ -131,8 +130,7 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Origin': 'https://www.youtube.com',
                 'Referer': `https://www.youtube.com/watch?v=${videoId}`,
-                'Connection': 'keep-alive',
-                'Cache-Control': 'no-cache'
+                'Connection': 'keep-alive'
             }
         });
         
@@ -165,12 +163,11 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
         }
         
         const transcriptResponse = await axios.get(selectedCaption.baseUrl, {
-            timeout: 10000,
+            timeout: 6000, // Reduced timeout for serverless
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Accept': 'application/xml, text/xml, */*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Connection': 'keep-alive'
+                'Accept-Language': 'en-US,en;q=0.9'
             }
         });
         
@@ -200,7 +197,7 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
             error.message.includes('ECONNRESET') ||
             error.message.includes('ENOTFOUND')
         )) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Reduced delay
             return fetchTranscript(videoId, lang, retryCount + 1);
         }
         
@@ -286,7 +283,8 @@ app.post('/transcript', async (req, res) => {
 app.get('/health', (req, res) => {
     res.json({
         status: 'OK',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        environment: 'netlify-functions'
     });
 });
 
@@ -294,6 +292,7 @@ app.get('/health', (req, res) => {
 app.get('/', (req, res) => {
     res.json({
         message: 'YouTube Transcript API',
+        environment: 'netlify-functions',
         endpoints: {
             'GET /transcript/:videoId': 'Get transcript by video ID or URL',
             'POST /transcript': 'Get transcript by sending data in request body',
