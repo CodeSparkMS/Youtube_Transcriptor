@@ -940,6 +940,329 @@ async function fetchTranscriptMethod9(videoId, lang = 'en') {
     };
 }
 
+// Method 10: Using a different proxy service with better error handling
+async function fetchTranscriptMethod10(videoId, lang = 'en') {
+    // Try using a different proxy service that's more reliable
+    const proxyUrl = 'https://thingproxy.freeboard.io/fetch/';
+    const targetUrl = `https://www.youtube.com/youtubei/v1/player`;
+    
+    const response = await axios.post(`${proxyUrl}${targetUrl}`, {
+        context: {
+            client: {
+                clientName: 'WEB',
+                clientVersion: '2.20250710.09.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 30000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache'
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API via proxy');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode === 'auto' && track.name?.simpleText?.includes(lang)
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    // Use proxy for transcript fetch as well
+    const transcriptResponse = await axios.get(`${proxyUrl}${selectedCaption.baseUrl}`, {
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive'
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
+// Method 11: Using a different approach with session simulation and delays
+async function fetchTranscriptMethod11(videoId, lang = 'en') {
+    // Add longer delays to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // First, try to get the video page with a different approach
+    const videoPageResponse = await axios.get(`https://www.youtube.com/embed/${videoId}`, {
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+    });
+    
+    // Extract cookies from the response
+    const cookies = videoPageResponse.headers['set-cookie'];
+    const cookieHeader = cookies ? cookies.map(cookie => cookie.split(';')[0]).join('; ') : '';
+    
+    // Add another delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Now make the API request with the session cookies
+    const innertubeUrl = 'https://www.youtube.com/youtubei/v1/player';
+    const response = await axios.post(innertubeUrl, {
+        context: {
+            client: {
+                clientName: 'WEB',
+                clientVersion: '2.20250710.09.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 25000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/embed/${videoId}`,
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Cookie': cookieHeader
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode === 'auto' && track.name?.simpleText?.includes(lang)
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    // Add another delay before fetching transcript
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const transcriptResponse = await axios.get(selectedCaption.baseUrl, {
+        timeout: 15000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Cookie': cookieHeader
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
+// Method 12: Client-side solution to bypass IP blocking
+async function fetchTranscriptMethod12(videoId, lang = 'en') {
+    // This method provides a client-side solution
+    // Instead of fetching on the server, we provide instructions for the client to fetch directly
+    
+    // First, try to get basic video info to verify the video exists
+    const videoInfoResponse = await axios.get(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
+        timeout: 10000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9'
+        }
+    });
+    
+    if (!videoInfoResponse.data || !videoInfoResponse.data.title) {
+        throw new Error('Video not found or not accessible');
+    }
+    
+    // Return a special response that indicates client-side fetching is needed
+    throw new Error('CLIENT_SIDE_FETCH_REQUIRED: This video requires client-side fetching to bypass IP blocking. Use the client-side endpoint instead.');
+}
+
+// Client-side endpoint that provides instructions for fetching
+app.get('/client-side/:videoId', async (req, res) => {
+    try {
+        const { videoId } = req.params;
+        const { lang = 'en' } = req.query;
+        const actualVideoId = extractVideoId(videoId) || videoId;
+        
+        if (!actualVideoId) {
+            return res.status(400).json({
+                error: 'Invalid YouTube video ID or URL',
+                provided: videoId
+            });
+        }
+
+        // Return instructions for client-side fetching
+        res.json({
+            videoId: actualVideoId,
+            message: 'Client-side fetching required to bypass IP blocking',
+            instructions: {
+                method: 'client-side',
+                description: 'This endpoint provides instructions for fetching the transcript directly from the client to bypass server IP blocking.',
+                clientCode: `
+// Client-side JavaScript code to fetch transcript
+async function fetchTranscriptClientSide(videoId) {
+    const response = await fetch('https://www.youtube.com/youtubei/v1/player', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        },
+        body: JSON.stringify({
+            context: {
+                client: {
+                    clientName: 'WEB',
+                    clientVersion: '2.20250710.09.00',
+                    hl: 'en',
+                    gl: 'US'
+                }
+            },
+            videoId: videoId
+        })
+    });
+    
+    const data = await response.json();
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    
+    if (captions && captions.length > 0) {
+        const selectedCaption = captions.find(track => track.languageCode === '${lang}') || captions[0];
+        const transcriptResponse = await fetch(selectedCaption.baseUrl);
+        const transcriptXml = await transcriptResponse.text();
+        
+        // Parse the XML and return transcript
+        return parseTranscriptXML(transcriptXml);
+    }
+    
+    throw new Error('No captions found');
+}
+
+// Usage
+fetchTranscriptClientSide('${actualVideoId}').then(transcript => {
+    console.log('Transcript:', transcript);
+}).catch(error => {
+    console.error('Error:', error);
+});
+                `,
+                note: 'This approach bypasses server-side IP blocking by fetching directly from the client browser.'
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            error: 'Failed to generate client-side instructions',
+            details: error.message
+        });
+    }
+});
+
 // Main transcript extraction with multiple fallback methods
 async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
     const maxRetries = 3;
@@ -952,7 +1275,10 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
         { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 }, // Added new method
         { name: 'Proxy (AllOrigins)', fn: fetchTranscriptMethod7 }, // Added new method
         { name: 'Proxy (CORS)', fn: fetchTranscriptMethod8 }, // Added new method
-        { name: 'Browser Session', fn: fetchTranscriptMethod9 } // Added new method
+        { name: 'Browser Session', fn: fetchTranscriptMethod9 }, // Added new method
+        { name: 'Proxy (ThingProxy)', fn: fetchTranscriptMethod10 }, // Added new method
+        { name: 'Browser Session (Embed)', fn: fetchTranscriptMethod11 }, // Added new method
+        { name: 'Client-Side Solution', fn: fetchTranscriptMethod12 } // Added new method
     ];
     
     let lastError = null;
@@ -1081,7 +1407,10 @@ app.get('/debug/:videoId', async (req, res) => {
             { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 }, // Added new method
             { name: 'Proxy (AllOrigins)', fn: fetchTranscriptMethod7 }, // Added new method
             { name: 'Proxy (CORS)', fn: fetchTranscriptMethod8 }, // Added new method
-            { name: 'Browser Session', fn: fetchTranscriptMethod9 } // Added new method
+            { name: 'Browser Session', fn: fetchTranscriptMethod9 }, // Added new method
+            { name: 'Proxy (ThingProxy)', fn: fetchTranscriptMethod10 }, // Added new method
+            { name: 'Browser Session (Embed)', fn: fetchTranscriptMethod11 }, // Added new method
+            { name: 'Client-Side Solution', fn: fetchTranscriptMethod12 } // Added new method
         ];
         
         const results = [];
@@ -1188,7 +1517,8 @@ app.get('/', (req, res) => {
             'GET /transcript/:videoId': 'Get transcript by video ID or URL',
             'POST /transcript': 'Get transcript by sending data in request body',
             'GET /debug/:videoId': 'Debug all methods for a video',
-            'GET /health': 'Health check'
+            'GET /health': 'Health check',
+            'GET /client-side/:videoId': 'Get client-side instructions for fetching a transcript'
         }
     });
 });
