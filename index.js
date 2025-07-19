@@ -133,9 +133,25 @@ async function fetchTranscriptMethod1(videoId, lang = 'en') {
     });
     
     const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
     const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (!captions || captions.length === 0) {
-        throw new Error('No captions found for this video');
+        // Check if this is due to blocking or actual no captions
+        if (data.videoDetails && data.videoDetails.length > 0) {
+            throw new Error('No captions found for this video');
+        } else {
+            throw new Error('YouTube may be blocking requests from this IP');
+        }
     }
     
     let selectedCaption = captions.find(track => track.languageCode === lang);
@@ -217,6 +233,17 @@ async function fetchTranscriptMethod2(videoId, lang = 'en') {
     });
     
     const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
     const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (!captions || captions.length === 0) {
         throw new Error('No captions found for this video');
@@ -325,16 +352,293 @@ async function fetchTranscriptMethod3(videoId, lang = 'en') {
     }
 }
 
+// Method 4: Using a different approach with more realistic headers
+async function fetchTranscriptMethod4(videoId, lang = 'en') {
+    const innertubeUrl = 'https://www.youtube.com/youtubei/v1/player';
+    const response = await axios.post(innertubeUrl, {
+        context: {
+            client: {
+                clientName: 'TVHTML5',
+                clientVersion: '7.20210713.08.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 30000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 7.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.81 TV Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/tv#/watch?v=${videoId}`,
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'X-YouTube-Client-Name': '67'
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    const transcriptResponse = await axios.get(selectedCaption.baseUrl, {
+        timeout: 15000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (SMART-TV; Linux; Tizen 7.0) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive'
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
+// Method 5: Direct approach with minimal headers and delays
+async function fetchTranscriptMethod5(videoId, lang = 'en') {
+    // Add a small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const innertubeUrl = 'https://www.youtube.com/youtubei/v1/player';
+    const response = await axios.post(innertubeUrl, {
+        context: {
+            client: {
+                clientName: 'WEB',
+                clientVersion: '2.20250710.09.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 35000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin'
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode === 'auto' && track.name?.simpleText?.includes(lang)
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    // Add another small delay before fetching transcript
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const transcriptResponse = await axios.get(selectedCaption.baseUrl, {
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive'
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
+// Method 6: Using a different YouTube API endpoint
+async function fetchTranscriptMethod6(videoId, lang = 'en') {
+    // Try using the older YouTube API endpoint
+    const response = await axios.get(`https://www.youtube.com/get_video_info?video_id=${videoId}`, {
+        timeout: 25000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+    });
+    
+    if (!response.data) {
+        throw new Error('No response from YouTube get_video_info');
+    }
+    
+    // Parse the response to extract caption tracks
+    const data = response.data;
+    const captionTracksMatch = data.match(/caption_tracks":\s*(\[.*?\])/);
+    
+    if (!captionTracksMatch) {
+        throw new Error('No caption tracks found in video info');
+    }
+    
+    try {
+        const captionTracks = JSON.parse(captionTracksMatch[1]);
+        
+        if (!captionTracks || captionTracks.length === 0) {
+            throw new Error('No captions available');
+        }
+        
+        let selectedCaption = captionTracks.find(track => track.languageCode === lang);
+        if (!selectedCaption) {
+            selectedCaption = captionTracks.find(track => 
+                track.languageCode.startsWith(lang.split('-')[0])
+            );
+        }
+        if (!selectedCaption) {
+            selectedCaption = captionTracks[0];
+        }
+        
+        if (!selectedCaption || !selectedCaption.baseUrl) {
+            throw new Error('No valid caption URL found');
+        }
+        
+        const transcriptResponse = await axios.get(selectedCaption.baseUrl, {
+            timeout: 15000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/xml, text/xml, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Connection': 'keep-alive'
+            }
+        });
+        
+        if (!transcriptResponse.data) {
+            throw new Error('Empty transcript response');
+        }
+        
+        const transcript = parseTranscriptXML(transcriptResponse.data);
+        if (!transcript || transcript.length === 0) {
+            throw new Error('No transcript content found after parsing');
+        }
+        
+        return {
+            transcript,
+            language: selectedCaption.languageCode,
+            availableLanguages: captionTracks.map(track => ({
+                code: track.languageCode,
+                name: track.name || track.languageCode
+            }))
+        };
+        
+    } catch (parseError) {
+        throw new Error(`Failed to parse caption tracks: ${parseError.message}`);
+    }
+}
+
 // Main transcript extraction with multiple fallback methods
 async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
-    const maxRetries = 2;
+    const maxRetries = 3;
     const methods = [
         { name: 'Primary (Web)', fn: fetchTranscriptMethod1 },
         { name: 'Alternative (Mobile)', fn: fetchTranscriptMethod2 },
-        { name: 'Third-party', fn: fetchTranscriptMethod3 }
+        { name: 'Third-party', fn: fetchTranscriptMethod3 },
+        { name: 'Smart TV', fn: fetchTranscriptMethod4 }, // Added new method
+        { name: 'Direct (Minimal Headers)', fn: fetchTranscriptMethod5 }, // Added new method
+        { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 } // Added new method
     ];
     
     let lastError = null;
+    let blockingDetected = false;
     
     for (let i = 0; i < methods.length; i++) {
         const method = methods[i];
@@ -350,9 +654,23 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
             console.log(`✗ Method ${i + 1} failed: ${error.message}`);
             lastError = error;
             
+            // Check if this looks like IP blocking
+            if (error.message.includes('blocking') || 
+                error.message.includes('429') || 
+                error.message.includes('rate limit') ||
+                error.message.includes('No captions found') ||
+                error.message.includes('Invalid response')) {
+                blockingDetected = true;
+            }
+            
             // If it's a rate limit error, wait before trying next method
             if (error.message.includes('429') || error.message.includes('rate limit')) {
+                console.log('Rate limit detected, waiting 3 seconds...');
                 await new Promise(resolve => setTimeout(resolve, 3000));
+            } else if (blockingDetected) {
+                // If blocking is detected, add a longer delay
+                console.log('Potential blocking detected, waiting 2 seconds...');
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
     }
@@ -362,14 +680,20 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
         lastError.message.includes('timeout') || 
         lastError.message.includes('network') ||
         lastError.message.includes('ECONNRESET') ||
-        lastError.message.includes('ENOTFOUND')
+        lastError.message.includes('ENOTFOUND') ||
+        blockingDetected
     )) {
         console.log(`Retrying... (attempt ${retryCount + 1}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000 + (retryCount * 2000)));
         return fetchTranscript(videoId, lang, retryCount + 1);
     }
     
-    throw new Error(`All methods failed. Last error: ${lastError.message}`);
+    // Provide more specific error messages
+    if (blockingDetected) {
+        throw new Error(`YouTube appears to be blocking requests from this IP. All ${methods.length} methods failed. Last error: ${lastError.message}`);
+    } else {
+        throw new Error(`All ${methods.length} methods failed. Last error: ${lastError.message}`);
+    }
 }
 
 // Main transcript route
@@ -433,7 +757,10 @@ app.get('/debug/:videoId', async (req, res) => {
         const methods = [
             { name: 'Primary (Web)', fn: fetchTranscriptMethod1 },
             { name: 'Alternative (Mobile)', fn: fetchTranscriptMethod2 },
-            { name: 'Third-party', fn: fetchTranscriptMethod3 }
+            { name: 'Third-party', fn: fetchTranscriptMethod3 },
+            { name: 'Smart TV', fn: fetchTranscriptMethod4 }, // Added new method
+            { name: 'Direct (Minimal Headers)', fn: fetchTranscriptMethod5 }, // Added new method
+            { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 } // Added new method
         ];
         
         const results = [];
