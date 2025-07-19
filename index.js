@@ -625,6 +625,321 @@ async function fetchTranscriptMethod6(videoId, lang = 'en') {
     }
 }
 
+// Method 7: Using a public proxy service to bypass IP blocking
+async function fetchTranscriptMethod7(videoId, lang = 'en') {
+    // Try using a public proxy service
+    const proxyUrl = 'https://api.allorigins.win/raw?url=';
+    const targetUrl = `https://www.youtube.com/youtubei/v1/player`;
+    
+    const response = await axios.post(`${proxyUrl}${encodeURIComponent(targetUrl)}`, {
+        context: {
+            client: {
+                clientName: 'WEB',
+                clientVersion: '2.20250710.09.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 30000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache'
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API via proxy');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode === 'auto' && track.name?.simpleText?.includes(lang)
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    // Use proxy for transcript fetch as well
+    const transcriptResponse = await axios.get(`${proxyUrl}${encodeURIComponent(selectedCaption.baseUrl)}`, {
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive'
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
+// Method 8: Using a different proxy service
+async function fetchTranscriptMethod8(videoId, lang = 'en') {
+    // Try using a different proxy service
+    const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+    const targetUrl = `https://www.youtube.com/youtubei/v1/player`;
+    
+    const response = await axios.post(`${proxyUrl}${targetUrl}`, {
+        context: {
+            client: {
+                clientName: 'WEB',
+                clientVersion: '2.20250710.09.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 30000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API via CORS proxy');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode === 'auto' && track.name?.simpleText?.includes(lang)
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    // Use proxy for transcript fetch as well
+    const transcriptResponse = await axios.get(`${proxyUrl}${selectedCaption.baseUrl}`, {
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
+// Method 9: Browser session simulation
+async function fetchTranscriptMethod9(videoId, lang = 'en') {
+    // First, get the video page to establish a session
+    const videoPageResponse = await axios.get(`https://www.youtube.com/watch?v=${videoId}`, {
+        timeout: 20000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+    });
+    
+    // Extract cookies from the response
+    const cookies = videoPageResponse.headers['set-cookie'];
+    const cookieHeader = cookies ? cookies.map(cookie => cookie.split(';')[0]).join('; ') : '';
+    
+    // Now make the API request with the session cookies
+    const innertubeUrl = 'https://www.youtube.com/youtubei/v1/player';
+    const response = await axios.post(innertubeUrl, {
+        context: {
+            client: {
+                clientName: 'WEB',
+                clientVersion: '2.20250710.09.00',
+                hl: 'en',
+                gl: 'US'
+            }
+        },
+        videoId: videoId
+    }, {
+        timeout: 25000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://www.youtube.com',
+            'Referer': `https://www.youtube.com/watch?v=${videoId}`,
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Cookie': cookieHeader
+        }
+    });
+    
+    const data = response.data;
+    
+    // Check if we got a valid response
+    if (!data || typeof data !== 'object') {
+        throw new Error('Invalid response from YouTube API');
+    }
+    
+    // Check for error responses
+    if (data.error || data.playabilityStatus?.status === 'ERROR') {
+        throw new Error(`YouTube API error: ${data.error?.message || data.playabilityStatus?.reason || 'Unknown error'}`);
+    }
+    
+    const captions = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!captions || captions.length === 0) {
+        throw new Error('No captions found for this video');
+    }
+    
+    let selectedCaption = captions.find(track => track.languageCode === lang);
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode === 'auto' && track.name?.simpleText?.includes(lang)
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions.find(track => 
+            track.languageCode.startsWith(lang.split('-')[0])
+        );
+    }
+    
+    if (!selectedCaption) {
+        selectedCaption = captions[0];
+    }
+    
+    if (!selectedCaption || !selectedCaption.baseUrl) {
+        throw new Error('No valid caption URL found');
+    }
+    
+    const transcriptResponse = await axios.get(selectedCaption.baseUrl, {
+        timeout: 15000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Cookie': cookieHeader
+        }
+    });
+    
+    if (!transcriptResponse.data) {
+        throw new Error('Empty transcript response');
+    }
+    
+    const transcript = parseTranscriptXML(transcriptResponse.data);
+    if (!transcript || transcript.length === 0) {
+        throw new Error('No transcript content found after parsing');
+    }
+    
+    return {
+        transcript,
+        language: selectedCaption.languageCode,
+        availableLanguages: captions.map(track => ({
+            code: track.languageCode,
+            name: track.name?.simpleText || track.languageCode
+        }))
+    };
+}
+
 // Main transcript extraction with multiple fallback methods
 async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
     const maxRetries = 3;
@@ -634,7 +949,10 @@ async function fetchTranscript(videoId, lang = 'en', retryCount = 0) {
         { name: 'Third-party', fn: fetchTranscriptMethod3 },
         { name: 'Smart TV', fn: fetchTranscriptMethod4 }, // Added new method
         { name: 'Direct (Minimal Headers)', fn: fetchTranscriptMethod5 }, // Added new method
-        { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 } // Added new method
+        { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 }, // Added new method
+        { name: 'Proxy (AllOrigins)', fn: fetchTranscriptMethod7 }, // Added new method
+        { name: 'Proxy (CORS)', fn: fetchTranscriptMethod8 }, // Added new method
+        { name: 'Browser Session', fn: fetchTranscriptMethod9 } // Added new method
     ];
     
     let lastError = null;
@@ -760,7 +1078,10 @@ app.get('/debug/:videoId', async (req, res) => {
             { name: 'Third-party', fn: fetchTranscriptMethod3 },
             { name: 'Smart TV', fn: fetchTranscriptMethod4 }, // Added new method
             { name: 'Direct (Minimal Headers)', fn: fetchTranscriptMethod5 }, // Added new method
-            { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 } // Added new method
+            { name: 'Alternative (Old API)', fn: fetchTranscriptMethod6 }, // Added new method
+            { name: 'Proxy (AllOrigins)', fn: fetchTranscriptMethod7 }, // Added new method
+            { name: 'Proxy (CORS)', fn: fetchTranscriptMethod8 }, // Added new method
+            { name: 'Browser Session', fn: fetchTranscriptMethod9 } // Added new method
         ];
         
         const results = [];
